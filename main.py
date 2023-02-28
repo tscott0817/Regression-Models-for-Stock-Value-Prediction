@@ -2,9 +2,8 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures, MinMaxScaler
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression, ElasticNet
 from sklearn import linear_model
 from past.builtins import xrange
 from scipy.special import expit
@@ -22,10 +21,9 @@ def main():
 
     # Add the column of ones to the data
     data.insert(0, 'Ones', 1)
-    # Create an ID column, use these values for tracking since start of data
-    data.insert(1, 'ID', range(0, len(data))) # TODO: This works, but Pycharm throws a type error (the range)
-    # pd.to_datetime(data['Date'])
-    # pd.to_timedelta(data['Date'], unit='d')
+    # Create a new column converting the date type into an integer, use these values for tracking since start of data
+    data['Date'] = pd.to_datetime(data['Date'])
+    data.insert(1, 'DateInt', range(0, len(data)))
     print(data)
 
     '''
@@ -34,115 +32,87 @@ def main():
         y = The average of the High and Low values
     '''
     cols = data.shape[1]
-    x = data.iloc[:, [0, 1]]
-    y = data.iloc[:, cols-1:cols]  # TODO: Maybe just use column names for this
-    x = np.asarray(x.values)  # asarray worked the best, got type error with matrix before
-    y = np.asarray(y.values)
-    #theta = np.asarray(np.array([0, 0])).T
-    # Use theta and create matrix
-    theta = np.matrix(np.array([0, 0])).T  # TODO: This needs to stay as matrix
-    print(data)
-    print("x = ", x)
-    print("y = ", y)
-    print("theta = ", theta)
+    X = data[['Ones', 'DateInt']]
+    Y = data['Average']
+    X = np.asarray(X.values)
+    Y = np.asarray(Y.values)
+    print("X = ", X)
+    print("Y = ", Y)
 
     model = linear_model.LinearRegression(fit_intercept=False)
-    model.fit(x, y)
+    model.fit(X, Y)
     model_coef = model.coef_
     print("Model Coefficients: ", model_coef)
 
     # Create prediction line
-    f = model.predict(x).flatten()
+    f = model.predict(X).flatten()
     print("f = ", f)
-    plt.plot(x[:, 1], f, color="red", label='Prediction')
 
     # Plot the data with the prediction line
-    # plt.scatter(data['Date'], data['Average'], label='Training Data')
-    plt.scatter(pd.to_datetime(data['Date']), data['Average'], label='Training Data')
-    plt.title("Microsoft Average Daily Stock Price")
+    plt.scatter(data['Date'], data['Average'], label='Training Data')
+    plt.plot(data['Date'], f, color="red", label='Prediction')
+    plt.title("Microsoft Average Daily Stock Price (No adjustments)")
     plt.xlabel("Date")
     plt.ylabel("Average Daily Market Value")
+    plt.legend()
     plt.show()
 
-    # Calculate the cost
-    def calcVectorizedCost(x, y, theta):
-        # TODO: Both give same values, but the first give more?
-        # m = len(y)
-        # predictions = x.dot(theta)
-        # sqErrors = (predictions - y)
-        # j = (1.0 / (2 * m)) * sqErrors.T.dot(sqErrors)
-        # return j
+    '''
+    Non-Linear model for predicting average daily stock value
+    '''
 
-        # TODO: Other one
-        inner = np.dot(((x * theta) - y).T, (x * theta) - y)
-        return inner / (2 * len(x))
+    def generate_polynomial_features(X, degree):
+        poly_features = PolynomialFeatures(degree=degree, include_bias=False)
+        X_poly = poly_features.fit_transform(X)
+        return X_poly
 
-    print("Cost: ", calcVectorizedCost(x, y, theta))
+    def nonlinear_regression(X, y, degree):
+        X_poly = generate_polynomial_features(X, degree)
+        model = LinearRegression(fit_intercept=False)
+        model.fit(X_poly, y)
+        y_pred = model.predict(X_poly)
+        return y_pred, model.coef_
 
-    # Create a gradient descent function that takes int the x, y, theta, eta, and iters as parameteres
-    def gradientDescent(x, y, theta, eta, iters):
-        # Make sure to get rid of this error:
-        # ValueError: operands could not be broadcast together with shapes (9083,2) (9083,)
-        # Get rid of: ValueError: setting an array element with a sequence.
-        # cost = np.zeros(iters, dtype=object)
-        cost = np.zeros(iters)
-        print("Theta Shape: ", theta.shape)
-        theta = theta.reshape(2, 1)
-        # theta = np.expand_dims(theta, axis = -1)
-        for i in range(iters):
-            gradients = 2 * (np.dot(x.T, ((np.dot(x, theta))) - y) / (len(x)))
-            # theta = theta.reshape(2, 1)
-            theta = theta - eta * gradients
-            # The previous line produces the error: ValueError: operands could not be broadcast together with shapes
-            # (9083,2) (9083,)
-            # Make both are theta is the same shape
-            # theta = theta.reshape(9083, 2)
+    # Low degree -> Underfitted model (like 2)
+    # High degree -> Overfitted model (like 10)
+    degree = 4
+    y_pred, coef = nonlinear_regression(X, Y, degree)
 
-            cost[i] = calcVectorizedCost(x, y, theta)
-        return theta, cost
+    # Plot the data with the predicted line
+    plt.scatter(data['Date'], data['Average'], label='Training Data')
+    plt.plot(data['Date'], y_pred, color="red", label='Prediction')
+    plt.title(f"Microsoft Average Daily Stock Price (Degree {degree} polynomial)")
+    plt.xlabel("Date")
+    plt.ylabel("Average Daily Market Value")
+    plt.legend()
+    plt.show()
 
-        # temp = np.matrix(np.zeros(theta.shape))
-        # parameters = int(theta.ravel().shape[0])
-        # # parameters = int(theta.ravel().shape[1])
-        # # Rewrite parameters variable to remove tuple index out of range error
-        # # parameters = theta.shape[1]
-        #
-        # cost = np.zeros(iters)
-        #
-        # for i in range(iters):
-        #     error = (x * theta) - y
-        #
-        #     for j in range(parameters):
-        #         term = np.multiply(error, x[:, j])
-        #         # term = np.dot(error, x[:, j])
-        #         temp[0, j] = theta[0, j] - ((eta / len(x)) * np.sum(term))
-        #
-        #     theta = temp
-        #     cost[i] = calcVectorizedCost(x, y, theta)
-        #
-        # # Reshape remove this error:
-        # # ValueError: operands could not be broadcast together with shapes (9083,2) (9083,)
-        # # theta = theta.reshape(9083, 2)
-        #
-        #
-        # return theta, cost
+    print(f"Model Coefficients: {coef}")
 
-    # Run the gradient descent function
-    eta = 0.5
-    iters = 1000
-    g, cost = gradientDescent(x, y, theta, eta, iters)
-    print("Gradient: ", g)
-    print("Cost: ", cost)
+    ''' 
+    Non-Linear regression with Elastic Net
+    '''
+    # @param alpha: The weight of the regularization term
+    # @param l1_ratio: The ratio of L1 regularization to L2 regularization
+    def nonlinear_regression_elastic(X, y, degree, alpha=1, l1_ratio=0.5):
+        X_poly = PolynomialFeatures(degree=degree).fit_transform(X)
+        model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, fit_intercept=False)
+        model.fit(X_poly, y)
+        y_pred = model.predict(X_poly)
+        return y_pred, model.coef_
 
+    # Fit the model using Elastic Net regularization
+    # Mess with params, overall produces better fit after elastic net at same degree value
+    y_pred, model_coef = nonlinear_regression_elastic(X, Y, degree=4, alpha=2, l1_ratio=0.5)
 
-
-
-
-
-
-
-
-
+    # Plot the data and the predicted values
+    plt.scatter(data['DateInt'], data['Average'], label='Training Data')
+    plt.plot(data['DateInt'], y_pred, color='red', label='Predicted')
+    plt.title(f"Microsoft Average Daily Stock Price (Elastic Net, Degree {degree})")
+    plt.xlabel('Date')
+    plt.ylabel('Average Daily Market Value')
+    plt.legend()
+    plt.show()
 
 
 if __name__ == "__main__":
